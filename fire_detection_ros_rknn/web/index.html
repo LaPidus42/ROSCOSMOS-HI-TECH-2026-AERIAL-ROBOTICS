@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обнаружение возгораний — карта</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23ff5a36'/></svg>">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="status" aria-label="Состояние БПЛА">
+  <div class="brand">
+    <span class="dot" id="st-link" title="Связь с бортом"></span>
+    <strong id="st-vehicle">Тепловизионная разведка</strong>
+    <span class="chip" id="st-mode"></span>
+  </div>
+  <dl class="readouts">
+    <div><dt id="st-pos-label">GPS</dt><dd id="st-pos">—</dd></div>
+    <div><dt id="st-agl-label">Высота AGL</dt><dd id="st-agl">—</dd></div>
+    <div><dt>Курс</dt><dd id="st-yaw">—</dd></div>
+    <div><dt>Скорость</dt><dd id="st-gs">—</dd></div>
+    <div><dt>Геопривязка</dt><dd id="st-geo">—</dd></div>
+    <div><dt>Объекты</dt><dd id="st-objects">—</dd></div>
+  </dl>
+</header>
+
+<main class="layout">
+  <section class="map-wrap">
+    <div id="map" aria-label="Карта обнаруженных объектов"></div>
+    <div class="map-tools">
+      <button id="btn-follow" class="tool" aria-pressed="true">Следовать за БПЛА</button>
+      <button id="btn-fit" class="tool">Показать все объекты</button>
+    </div>
+    <div class="legend" id="legend" aria-label="Легенда"></div>
+  </section>
+
+  <aside class="panel">
+    <div id="videos"></div>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="objects" id="tab-objects">Объекты <span class="badge" id="n-objects">0</span></button>
+      <button role="tab" aria-selected="false" data-tab="log" id="tab-log">Журнал <span class="badge" id="n-log">0</span></button>
+      <button role="tab" aria-selected="false" data-tab="plan" id="tab-plan" hidden>План</button>
+    </div>
+
+    <div class="tab-body" id="pane-objects" role="tabpanel" aria-labelledby="tab-objects">
+      <ol class="objects" id="objects"></ol>
+      <p class="empty" id="objects-empty">Пока ничего не найдено. Объект появится здесь и на карте после двух подтверждённых детекций с известными координатами.</p>
+    </div>
+
+    <div class="tab-body" id="pane-log" role="tabpanel" aria-labelledby="tab-log" hidden>
+      <div class="log-tools">
+        <select id="f-class" aria-label="Тип объекта"><option value="">Все типы</option></select>
+        <select id="f-session" aria-label="Полёт">
+          <option value="current">Текущий полёт</option>
+          <option value="all">Все полёты</option>
+        </select>
+        <label class="check"><input type="checkbox" id="f-located"> Только с координатами</label>
+        <button id="btn-pause" class="tool small" aria-pressed="false">Пауза</button>
+        <a id="btn-csv" class="tool small" href="api/export.csv?session=current" download>Скачать CSV</a>
+      </div>
+      <div class="table-wrap">
+        <table class="log">
+          <thead><tr><th>Время</th><th>Тип</th><th>Уверенность</th><th>Координаты</th><th>Дальн.</th></tr></thead>
+          <tbody id="log"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-body plan" id="pane-plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
+      <section id="plan-ros" hidden>
+        <h3>С дрона</h3>
+        <p class="hint">Взять изображение карты, которое рисует узел aruco_map, и файл карты маркеров, по которой дрон сейчас летает. Изображение сразу выставляется по маркерам.</p>
+        <button id="plan-from-ros" class="tool small">Взять карту с дрона</button>
+      </section>
+      <section>
+        <h3>Изображение площадки</h3>
+        <p class="hint">PNG, JPEG или WebP: карта ArUco-маркеров, схема зала или снимок сверху.</p>
+        <div class="row">
+          <label class="tool small file">Загрузить изображение<input type="file" id="plan-file" accept="image/png,image/jpeg,image/webp"></label>
+          <button id="plan-clear" class="tool small" hidden>Убрать</button>
+        </div>
+        <div class="fields" id="plan-fields">
+          <label>Ширина изображения, м<input type="number" id="plan-width" step="0.01" min="0.01" inputmode="decimal"></label>
+          <label>Левый нижний угол, X, м<input type="number" id="plan-x0" step="0.01" inputmode="decimal"></label>
+          <label>Левый нижний угол, Y, м<input type="number" id="plan-y0" step="0.01" inputmode="decimal"></label>
+          <label>Прозрачность<input type="range" id="plan-opacity" min="0.1" max="1" step="0.05"></label>
+        </div>
+        <p class="hint" id="plan-info"></p>
+        <div class="row" id="plan-fit-row" hidden>
+          <button id="plan-fit" class="tool small">Подогнать по маркерам</button>
+          <label class="inline">поля изображения, пикс. <input type="number" id="plan-margin" min="0" step="10" value="200"></label>
+        </div>
+      </section>
+
+      <section>
+        <h3>Карта маркеров</h3>
+        <p class="hint">Файл в формате aruco_pose (как у Clover): строка на маркер, <code>id размер x y [z rot_z …]</code>, координаты центра в метрах. Маркеры рисуются точно по координатам, поэтому по ним удобно выставить изображение.</p>
+        <div class="row">
+          <label class="tool small file">Загрузить карту маркеров<input type="file" id="markers-file" accept=".txt,.map,text/plain"></label>
+          <button id="markers-clear" class="tool small" hidden>Убрать</button>
+        </div>
+        <p class="hint" id="markers-info"></p>
+      </section>
+
+      <section>
+        <h3>Совмещение</h3>
+        <p class="hint">Меняйте ширину и угол, пока нарисованные маркеры не лягут на маркеры изображения. Без файла карты: поставьте дрон над маркером с известными координатами и двигайте изображение, пока метка дрона не окажется на нём.</p>
+        <p class="save-state" id="plan-save" aria-live="polite"></p>
+      </section>
+    </div>
+  </aside>
+</main>
+
+<div class="toasts" id="toasts" aria-live="assertive"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+<script src="hud.js"></script>
+</body>
+</html>
