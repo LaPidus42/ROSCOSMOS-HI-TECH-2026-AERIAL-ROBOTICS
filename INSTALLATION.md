@@ -11,17 +11,18 @@
 На Orange Pi с Ubuntu 20.04 и ROS Noetic выполните:
 
 ```bash
-mkdir -p ~/catkin_ws/src
-cd ~/catkin_ws/src
+mkdir -p ~/catkin_ws/src && cd ~/catkin_ws/src
 git clone https://github.com/LaPidus42/ROSCOSMOS-HI-TECH-2026-AERIAL-ROBOTICS.git
-ln -s ROSCOSMOS-HI-TECH-2026-AERIAL-ROBOTICS/fire_detection_ros_rknn fire_detection_ros_rknn_slop2
-pip3 install -r fire_detection_ros_rknn_slop2/requirements.txt
-cd ~/catkin_ws
-rosdep install --from-paths src --ignore-src -r -y
-catkin_make
+ln -s ROSCOSMOS-HI-TECH-2026-AERIAL-ROBOTICS/fire_detection_ros_rknn .
+
+pip3 install -r fire_detection_ros_rknn/requirements.txt
+cp <модель>.rknn fire_detection_ros_rknn/models/
+
+cd ~/catkin_ws && rosdep install --from-paths src -y --ignore-src
+catkin_make && source devel/setup.bash
 ```
 
-Модель детекции уже находится в каталоге `fire_detection_ros_rknn_slop2/models/`.
+В команде копирования замените `<модель>.rknn` на путь к файлу модели. Если комплектная модель уже находится в `fire_detection_ros_rknn/models/`, пропустите эту команду.
 
 ## 3. Запуск и проверка
 
