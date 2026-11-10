@@ -1,0 +1,16 @@
+fire_detector:
+  model_path: "/home/orangepi/catkin_ws/src/fire_detection_ros_rknn/models/fire-cars_RK3588_640x640.rknn"
+  input_width: 640
+  input_height: 640
+  use_all_npu_cores: true
+  
+  # === НАСТРОЙКИ ФИЛЬТРАЦИИ (КРИТИЧЕСКИ ВАЖНО) ===
+  conf_thresh: 0.65          # Повышен с 0.35. Мелкий шум обычно имеет уверенность < 0.5
+  iou_thresh: 0.65           # Немного повышен для слияния близких рамок
+  min_detection_area: 800    # Рамка 20x40 пикселей = 800. Всё, что меньше, считается шумом матрицы.
+  
+  num_classes: 2
+  class_names: ["fire", "car"]
+  class_colors: [[0, 0, 255], [0, 255, 255]]
+  process_hz: 10
+  verbose: false

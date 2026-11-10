@@ -1,0 +1,88 @@
+# Тестовый дрон (образ на базе Clover: MAVROS, aruco_map, vpe_publisher).
+# Полёт по ArUco-маркерам без GPS, объекты в метрах на плане площадки.
+# roslaunch fire_detection_ros_rknn fire_system.launch vehicle:=test
+# Изображение площадки и карту маркеров загружают в веб-интерфейсе, вкладка «План».
+
+mode: local
+vehicle_name: "Тестовый дрон"
+
+host: "0.0.0.0"
+port: 8088                    # 8080 на этом дроне занят web_video_server
+db_path: "~/fire_logs/detections.db"
+
+local:
+  # Откуда брать позицию дрона:
+  #   tf      — TF «карта маркеров -> корпус» (на Clover: aruco_map -> base_link). Основной вариант.
+  #   pose    — топик позы (PoseStamped / PoseWithCovarianceStamped / Odometry).
+  #   mavlink — /mavlink/local_position от нашей mavlink-ноды (только если нет MAVROS).
+  source: tf
+  tf:
+    map_frame: aruco_map        # система карты маркеров = система плана в интерфейсе
+    body_frame: base_link
+    # Фрейм одометрии автопилота. Через него позиция обновляется и когда маркеры
+    # не видны (оптический поток + дальномер), а интерфейс показывает, сколько
+    # секунд маркеров нет. Пустая строка — брать aruco_map -> base_link напрямую.
+    odom_frame: map
+    rate_hz: 20
+  markers_topic: "/aruco_map/pose"   # публикуется только когда карта маркеров видна
+  # Публикуется, только когда карта маркеров распознана: по нему интерфейс показывает,
+  # сколько секунд дрон держится без маркеров (по оптическому потоку, копится снос)
+  markers_topic: "/aruco_map/pose"
+  # Кнопка «Взять с дрона» во вкладке «План»: картинка карты от aruco_map и её файл.
+  # Узел aruco_map рисует карту 2000×2000 пикс. с полями 200 пикс. (параметры image_*)
+  aruco_image_topic: "/aruco_map/image"
+  aruco_map_param: "/aruco_map/map"           # параметр с путём к map33.txt
+  aruco_image_margin: 200
+  pose_topic: "/mavros/local_position/pose"   # для source: pose
+  pose_frame: enu               # enu: x вправо, y вверх, z вверх; ned: x север, y восток, z вниз
+  velocity_topic: "/mavros/local_position/velocity_local"
+  velocity_frame: enu
+  # Если оси источника повёрнуты/сдвинуты относительно карты маркеров (для tf не нужно):
+  frame_rotation_deg: 0.0
+  frame_offset: [0.0, 0.0]
+  position_timeout: 1.0         # позиция старше — координаты объектов не считаются
+  # map_dir: "~/fire_logs/localmap"
+
+camera:
+  hfov_deg: 56.0
+  vfov_deg: 42.0
+  mount_pitch_deg: -90.0
+  mount_roll_deg: 0.0
+  mount_yaw_deg: 0.0
+  flip_x: false
+  flip_y: false
+  stabilized: false
+
+min_agl_m: 0.3                # на низкой высоте ниже — считаем, что дрон стоит
+max_range_m: 30.0
+max_telemetry_age: 0.5
+
+tracker:
+  assoc_radius_m: 0.4         # очаги ближе 40 см — один объект
+  range_factor: 0.05
+  min_hits: 2
+
+telemetry_hz: 5.0
+stale_after_s: 60
+class_labels: {fire: "Очаг возгорания", car: "Автомобиль"}
+class_colors: {fire: "#ff5a36", car: "#f2c230"}
+
+video:
+  enabled: true
+  topic: "/fire/annotated"
+  label: "Тепловизор с детекциями"
+# Дополнительные камеры: каждая — отдельная панель видео в интерфейсе.
+# Тип топика (Image или CompressedImage) определяется сам.
+cameras:
+  - name: main
+    label: "Основная камера (вниз, по ней ArUco)"
+    topic: "/main_camera/image_raw"     # если плата загружена: /main_camera/image_raw_throttled
+    max_fps: 10
+    max_width: 640
+    jpeg_quality: 75
+  - name: second
+    label: "Вторая камера"
+    topic: "/second_camera/second_camera/image_raw"
+    max_fps: 10
+    max_width: 640
+    jpeg_quality: 75

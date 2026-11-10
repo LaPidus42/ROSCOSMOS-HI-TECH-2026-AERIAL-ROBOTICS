@@ -1,0 +1,71 @@
+# ============================================================
+# ВТОЛ: полёт по GPS, объекты в широте/долготе на карте местности
+# Запуск: roslaunch fire_detection_ros_rknn_slop2 fire_system2.launch vehicle:=vtol
+# Файл грузится внутрь ноды geo_dashboard (см. fire_system2.launch)
+# ============================================================
+
+mode: gps
+vehicle_name: "ВТОЛ"
+
+host: "0.0.0.0"
+port: 8080
+db_path: "~/fire_logs/detections.db"
+
+# Камера тепловизора (смотрит вниз)
+camera:
+  hfov_deg: 56.0
+  vfov_deg: 42.0
+  mount_pitch_deg: -90.0      # строго вниз (надир)
+  mount_roll_deg: 0.0
+  mount_yaw_deg: 0.0
+  flip_x: false
+  flip_y: false
+  stabilized: false           # камера жёстко закреплена
+
+# Геопривязка (на верхнем уровне: нода читает ~min_agl_m и ~max_range_m, а не camera/...)
+min_agl_m: 5.0                # ниже 5 м — считаем, что на земле
+max_range_m: 500.0            # макс. дальность обнаружения
+
+# Телеметрия
+max_telemetry_age: 1.0        # макс. возраст телеметрии (с)
+#ground_alt_amsl: null         # если null — берём из /mavlink/rel_alt
+
+# Трекер объектов
+tracker:
+  assoc_radius_m: 15.0        # объекты ближе 15м — один и тот же
+  range_factor: 0.1
+  min_hits: 2                 # нужно минимум 2 детекции для подтверждения
+
+# Интерфейс
+telemetry_hz: 5.0
+stale_after_s: 120            # через 2 мин скрывать старые объекты
+
+# Карта (OpenStreetMap + спутник ArcGIS)
+map:
+  tile_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+  tile_attribution: "© OpenStreetMap contributors"
+  max_zoom: 19                # нода читает map/max_zoom
+  satellite_url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+  center: [56.766813, 60.756928]    # стартовый центр карты (замените на ваш)
+  zoom: 17
+
+# Подписи классов (БЕЗ эмодзи, inline-формат для безопасности парсера)
+class_labels: {fire: "Очаг возгорания", car: "Автомобиль"}
+class_colors: {fire: "#ff5a36", car: "#f2c230"}
+
+# Видеопотоки
+video:
+  enabled: true
+  topic: "/fire/annotated"
+  label: "Тепловизор с детекциями"
+  max_fps: 10
+
+# Дополнительные камеры (пусто, если нет курсовой)
+cameras:
+  - name: course
+    label: "Курсовая камера (USB)"
+    topic: "/course_camera/image_raw"
+    max_fps: 10
+    max_width: 640
+    jpeg_quality: 75
+    enabled: true

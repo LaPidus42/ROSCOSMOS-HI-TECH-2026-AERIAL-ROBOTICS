@@ -1,0 +1,55 @@
+<launch>
+    <!-- Аргументы -->
+    <arg name="model_path" default="$(find fire_detection_ros_rknn_slop2)/models/fire-cars_RK3588_640x640.rknn"/>
+    <arg name="conf_thresh" default="0.35"/>
+    <arg name="process_hz" default="10"/>
+    <arg name="camera_fps" default="25"/>
+    <arg name="mavlink_port" default="/dev/ttyS3"/>
+    <arg name="mavlink_baud" default="57600"/>
+    
+    <!-- Загрузка параметров -->
+    <rosparam command="load" file="$(find fire_detection_ros_rknn_slop2)/config/params.yaml"/>
+    
+    <!-- Переопределение параметров из аргументов -->
+    <param name="fire_detector/model_path" value="$(arg model_path)"/>
+    <param name="fire_detector/conf_thresh" value="$(arg conf_thresh)"/>
+    <param name="fire_detector/process_hz" value="$(arg process_hz)"/>
+    <param name="thermal_camera/target_fps" value="$(arg camera_fps)"/>
+    <param name="mavlink/port" value="$(arg mavlink_port)"/>
+    <param name="mavlink/baud" value="$(arg mavlink_baud)"/>
+    
+    <!-- Нода захвата видео с тепловизора -->
+    <node name="thermal_camera" pkg="fire_detection_ros_rknn_slop2" 
+          type="thermal_camera_node2.py" output="screen">
+        <param name="device_search_id" value="Camera (usb-fc800000.usb-1.2"/>
+        <param name="width" value="256"/>
+        <param name="height" value="192"/>
+        <param name="target_fps" value="$(arg camera_fps)"/>
+        <param name="output_width" value="640"/>
+        <param name="output_height" value="480"/>
+        <param name="jpeg_quality" value="85"/>
+    </node>
+    
+    <!-- Нода детектора огня (RKNN NPU) -->
+    <node name="fire_detector_rknn_slop2" pkg="fire_detection_ros_rknn_slop2" 
+          type="fire_detector_rknn_node2.py" output="screen">
+        <param name="model_path" value="$(arg model_path)"/>
+        <param name="conf_thresh" value="$(arg conf_thresh)"/>
+        <param name="process_hz" value="$(arg process_hz)"/>
+        <param name="use_all_npu_cores" value="true"/>
+    </node>
+    
+    <!-- Нода телеметрии MAVLink -->
+    <node name="mavlink_telemetry" pkg="fire_detection_ros_rknn" 
+          type="mavlink_telemetry_node.py" output="screen">
+        <param name="port" value="$(arg mavlink_port)"/>
+        <param name="baud" value="$(arg mavlink_baud)"/>
+    </node>
+    
+    <!-- Foxglove Bridge для визуализации -->
+    <node name="foxglove_bridge" pkg="foxglove_bridge" 
+          type="foxglove_bridge" output="screen">
+        <param name="port" value="8765"/>
+        <param name="address" value="0.0.0.0"/>
+    </node>
+</launch>

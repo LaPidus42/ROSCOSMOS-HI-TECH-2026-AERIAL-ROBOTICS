@@ -1,0 +1,89 @@
+<launch>
+    <!-- === АРГУМЕНТЫ === -->
+    <arg name="vehicle" default="vtol"/>  <!-- vtol | test -->
+    <arg name="model_path" default="$(find fire_detection_ros_rknn_slop2)/models/fire-cars_RK3588_640x640.rknn"/>
+    <arg name="conf_thresh" default="0.45"/>
+    <arg name="iou_thresh" default="0.65"/>
+    <arg name="min_area" default="500"/>
+    <arg name="process_hz" default="15"/>
+    <arg name="camera_fps" default="25"/>
+    <arg name="mavlink_port" default="/dev/ttyS3"/>
+    <arg name="mavlink_baud" default="57600"/>
+    <!-- Камеры привязаны к USB-разъёмам (не путаются при перезагрузке; разъёмы не переставлять):
+         тепловизор — контроллер fc880000, порт 1.2 (ищется по имени из вывода v4l2-ctl, список устройств);
+         курсовая  — контроллер fc800000, порт 1 (открывается по ПУТИ из ls -l /dev/v4l/by-path/, index0) -->
+    <arg name="course_device" default="/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0"/>
+    <arg name="thermal_search_id" default="Camera (usb-fc880000.usb-1.2"/>
+
+    <!-- === Конфиг веб-интерфейса в зависимости от vehicle === -->
+    <arg name="dashboard_config" value="$(find fire_detection_ros_rknn_slop2)/config/dashboard_vtol.yaml"
+         if="$(eval arg('vehicle') == 'vtol')"/>
+    <arg name="dashboard_config" value="$(find fire_detection_ros_rknn_slop2)/config/dashboard_test.yaml"
+         unless="$(eval arg('vehicle') == 'vtol')"/>
+
+    <!-- Общие параметры детектора (/fire_detector/...) — для справки; нода ниже получает свои явно -->
+    <rosparam command="load" file="$(find fire_detection_ros_rknn_slop2)/config/params.yaml"/>
+
+    <!-- === Тепловизор === -->
+    <node name="thermal_camera" pkg="fire_detection_ros_rknn_slop2"
+          type="thermal_camera_node2.py" output="screen">
+        <param name="device_search_id" value="$(arg thermal_search_id)"/>
+        <param name="width" value="256"/>
+        <param name="height" value="192"/>
+        <param name="target_fps" value="$(arg camera_fps)"/>
+        <param name="output_width" value="640"/>
+        <param name="output_height" value="480"/>
+        <param name="jpeg_quality" value="85"/>
+    </node>
+
+    <!-- === Детектор на NPU === -->
+    <node name="fire_detector_rknn_slop2" pkg="fire_detection_ros_rknn_slop2"
+          type="fire_detector_rknn_node2.py" output="screen">
+        <param name="model_path" value="$(arg model_path)"/>
+        <param name="conf_thresh" value="$(arg conf_thresh)"/>
+        <param name="iou_thresh" value="$(arg iou_thresh)"/>
+        <param name="min_detection_area" value="$(arg min_area)"/>
+        <param name="process_hz" value="$(arg process_hz)"/>
+        <param name="use_all_npu_cores" value="true"/>
+    </node>
+
+    <!-- === Телеметрия MAVLink: /mavlink/navsat, attitude, velocity, rel_alt, gps_info, battery ===
+         Нода из ЭТОГО пакета (в старом fire_detection_ros_rknn нет rel_alt — без него
+         неизвестна высота и координаты очагов не считаются) -->
+    <node name="mavlink_telemetry" pkg="fire_detection_ros_rknn_slop2"
+          type="mavlink_telemetry_node.py" output="screen">
+        <param name="port" value="$(arg mavlink_port)"/>
+        <param name="baud" value="$(arg mavlink_baud)"/>
+    </node>
+
+    <!-- === Foxglove Bridge (опционально) === -->
+    <node name="foxglove_bridge" pkg="foxglove_bridge"
+          type="foxglove_bridge" output="screen">
+        <param name="port" value="8765"/>
+        <param name="address" value="0.0.0.0"/>
+    </node>
+
+    <!-- === ВЕБ-ИНТЕРФЕЙС (НСУ пилота) ===
+         Конфиг грузится ВНУТРЬ ноды: нода читает свои параметры (~port, ~camera/..., ~map/...).
+         Раньше он грузился в корень (/port, /camera/...), и нода работала на значениях по умолчанию. -->
+    <node name="geo_dashboard" pkg="fire_detection_ros_rknn_slop2"
+          type="geo_dashboard_node.py" output="screen" respawn="true" respawn_delay="5">
+        <rosparam command="load" file="$(arg dashboard_config)"/>
+        <param name="vehicle_name" value="ВТОЛ" if="$(eval arg('vehicle') == 'vtol')"/>
+        <param name="vehicle_name" value="Тестовый дрон" unless="$(eval arg('vehicle') == 'vtol')"/>
+    </node>
+
+    <!-- === Курсовая камера: прямой захват с USB-камеры === -->
+    <node name="usb_camera" pkg="fire_detection_ros_rknn_slop2"
+          type="usb_camera_node.py" output="screen">
+        <param name="device" value="$(arg course_device)"/>
+        <!-- MJPG: сжатый поток, мало занимает полосу USB (тепловизор на том же контроллере) -->
+        <param name="fourcc" value="MJPG"/>
+        <param name="width" value="640"/>
+        <param name="height" value="480"/>
+        <param name="target_fps" value="15"/>
+        <param name="jpeg_quality" value="80"/>
+        <param name="topic" value="/course_camera/image_raw"/>
+    </node>
+</launch>
+
