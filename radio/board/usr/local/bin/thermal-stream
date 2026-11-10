@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""ROS topic (sensor_msgs/CompressedImage JPEG) via rosbridge -> H.264 RTP/UDP.
+
+Subscribes to TOPIC on the detection board's rosbridge websocket and feeds the
+JPEG frames to gst-launch at a constant FPS (the last frame is repeated, the
+detector itself gives only ~2 fps). Settings: /etc/default/thermal-stream.
+Only the standard library is used: the modem has no internet for pip.
+"""
+import base64
+import json
+import os
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+ROSBRIDGE_HOST = os.environ.get("ROSBRIDGE_HOST", "192.168.1.20")
+ROSBRIDGE_PORT = int(os.environ.get("ROSBRIDGE_PORT", "9090"))
+TOPIC = os.environ.get("TOPIC", "/fire/annotated")
+DEST_HOST = os.environ.get("DEST_HOST", "192.168.1.100")
+DEST_PORT = int(os.environ.get("DEST_PORT", "5601"))
+FPS = int(os.environ.get("FPS", "10"))
+BITRATE = int(os.environ.get("BITRATE", "600"))
+# no message from rosbridge for this long -> reconnect
+RECV_TIMEOUT = float(os.environ.get("RECV_TIMEOUT", "10"))
+
+
+def log(*args):
+    print(*args, file=sys.stderr, flush=True)
+
+
+class WebSocket:
+    """Minimal RFC 6455 client: text frames, fragmentation, ping/pong."""
+
+    def __init__(self, host, port, timeout):
+        self.sock = socket.create_connection((host, port), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((
+            "GET / HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        self.buf = b""
+        while b"\r\n\r\n" not in self.buf:
+            self._fill()
+        head, self.buf = self.buf.split(b"\r\n\r\n", 1)
+        if b" 101 " not in head.split(b"\r\n", 1)[0]:
+            raise ConnectionError("handshake failed: " + head.decode(errors="replace"))
+        self.sock.settimeout(timeout)
+
+    def _fill(self):
+        chunk = self.sock.recv(1 << 16)
+        if not chunk:
+            raise ConnectionError("connection closed")
+        self.buf += chunk
+
+    def _read(self, n):
+        while len(self.buf) < n:
+            self._fill()
+        data, self.buf = self.buf[:n], self.buf[n:]
+        return data
+
+    def _send(self, opcode, payload):
+        mask = os.urandom(4)
+        n = len(payload)
+        if n < 126:
+            head = struct.pack("!BB", 0x80 | opcode, 0x80 | n)
+        elif n < 1 << 16:
+            head = struct.pack("!BBH", 0x80 | opcode, 0x80 | 126, n)
+        else:
+            head = struct.pack("!BBQ", 0x80 | opcode, 0x80 | 127, n)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(head + mask + masked)
+
+    def send_text(self, text):
+        self._send(0x1, text.encode())
+
+    def recv_message(self):
+        parts = []
+        while True:
+            b0, b1 = self._read(2)
+            opcode, n = b0 & 0x0F, b1 & 0x7F
+            if n == 126:
+                n = struct.unpack("!H", self._read(2))[0]
+            elif n == 127:
+                n = struct.unpack("!Q", self._read(8))[0]
+            mask = self._read(4) if b1 & 0x80 else None
+            payload = self._read(n)
+            if mask:
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            if opcode == 0x8:
+                raise ConnectionError("closed by server")
+            if opcode == 0x9:
+                self._send(0xA, payload)
+                continue
+            if opcode == 0xA:
+                continue
+            parts.append(payload)
+            if b0 & 0x80:
+                return b"".join(parts)
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+class Receiver(threading.Thread):
+    """Keeps the newest JPEG frame from the topic, reconnecting forever."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.lock = threading.Lock()
+        self.frame = None
+        self.count = 0
+
+    def run(self):
+        while True:
+            ws = None
+            try:
+                ws = WebSocket(ROSBRIDGE_HOST, ROSBRIDGE_PORT, RECV_TIMEOUT)
+                ws.send_text(json.dumps({
+                    "op": "subscribe", "topic": TOPIC,
+                    "type": "sensor_msgs/CompressedImage", "queue_length": 1}))
+                log(f"subscribed to {TOPIC} at ws://{ROSBRIDGE_HOST}:{ROSBRIDGE_PORT}")
+                while True:
+                    msg = json.loads(ws.recv_message())
+                    if msg.get("op") != "publish":
+                        continue
+                    jpeg = base64.b64decode(msg["msg"]["data"])
+                    with self.lock:
+                        self.frame = jpeg
+                        self.count += 1
+            except (OSError, ConnectionError, ValueError, KeyError) as e:
+                log(f"rosbridge: {e!r}, reconnecting in 2 s")
+            finally:
+                if ws:
+                    ws.close()
+            time.sleep(2)
+
+
+def main():
+    gst = subprocess.Popen([
+        "gst-launch-1.0", "-q",
+        "fdsrc", "fd=0", "do-timestamp=true", "!",
+        # without a framerate x264enc rate control overshoots ~3x
+        f"image/jpeg,framerate={FPS}/1", "!",
+        "jpegparse", "!", "jpegdec", "!", "videoconvert", "!",
+        "x264enc", "tune=zerolatency", "speed-preset=ultrafast",
+        f"bitrate={BITRATE}", f"key-int-max={FPS}", "!",
+        "rtph264pay", "config-interval=1", "pt=96", "!",
+        "udpsink", f"host={DEST_HOST}", f"port={DEST_PORT}", "sync=false",
+    ], stdin=subprocess.PIPE)
+    signal.signal(signal.SIGTERM, lambda *_: (gst.terminate(), sys.exit(0)))
+
+    rx = Receiver()
+    rx.start()
+    log(f"streaming {TOPIC} -> {DEST_HOST}:{DEST_PORT} at {FPS} fps, {BITRATE} kbit/s")
+
+    period = 1.0 / FPS
+    next_t = time.monotonic()
+    last_report, last_count = next_t, 0
+    while True:
+        with rx.lock:
+            frame, count = rx.frame, rx.count
+        if frame is not None:
+            try:
+                gst.stdin.write(frame)
+                gst.stdin.flush()
+            except BrokenPipeError:
+                break
+        if gst.poll() is not None:
+            break
+        now = time.monotonic()
+        if now - last_report >= 60:
+            log(f"topic rate {(count - last_count) / (now - last_report):.1f} Hz")
+            last_report, last_count = now, count
+        next_t += period
+        time.sleep(max(0.0, next_t - time.monotonic()))
+        if time.monotonic() - next_t > 1:
+            next_t = time.monotonic()
+    log(f"gst-launch exited with code {gst.wait()}")
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

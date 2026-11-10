@@ -1,0 +1,13 @@
+[Unit]
+Description=USB camera H.264 RTP stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/default/usbcam-stream
+ExecStart=/usr/bin/gst-launch-1.0 -q v4l2src device=${DEVICE} ! image/jpeg,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! jpegdec ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=${BITRATE} key-int-max=${FPS} ! rtph264pay config-interval=1 pt=96 ! udpsink host=${DEST_HOST} port=${DEST_PORT} sync=false
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+# Thermal camera with fire detection boxes (ROS topic on the Orange Pi) -> H.264 RTP/UDP
+ROSBRIDGE_HOST=192.168.1.20
+ROSBRIDGE_PORT=9090
+TOPIC=/fire/annotated
+DEST_HOST=192.168.1.100
+DEST_PORT=5601
+# output frame rate; the topic itself is ~2 fps, the last frame is repeated
+FPS=10
+# kbit/s
+BITRATE=600

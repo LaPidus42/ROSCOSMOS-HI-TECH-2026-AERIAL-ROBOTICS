@@ -1,0 +1,10 @@
+#!/bin/sh
+# Switch usbcam-stream quality preset: max | stable | min
+case "$1" in
+  max)    set -- 1600 1200 30 5000 ;;
+  stable) set -- 1280 720 30 2500 ;;
+  min)    set -- 640 480 30 800 ;;
+  *) echo "usage: usbcam-preset max|stable|min"; grep -E "^(WIDTH|HEIGHT|FPS|BITRATE)=" /etc/default/usbcam-stream; exit 1 ;;
+esac
+sed -i -e "s/^WIDTH=.*/WIDTH=$1/" -e "s/^HEIGHT=.*/HEIGHT=$2/" -e "s/^FPS=.*/FPS=$3/" -e "s/^BITRATE=.*/BITRATE=$4/" /etc/default/usbcam-stream
+systemctl restart usbcam-stream && echo "${1}x${2}@${3} ${4} kbit/s"
