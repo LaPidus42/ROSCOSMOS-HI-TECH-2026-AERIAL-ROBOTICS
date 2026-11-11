@@ -1,4 +1,6 @@
 # VTOL с системой обнаружения пожаров “Вега”
+# Ссылка на паспорт проекта - https://docs.google.com/document/d/1ulLIB_YMaG4zhtzfm-pvwOxbdowuhzrmpYwXogpDT6c/edit?usp=sharing
+
 
 **Назначение:** Мониторинг местности на предмет пожаров, детекция и передача координат на НСУ
 
