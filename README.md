@@ -42,6 +42,14 @@ catkin_make && source devel/setup.bash
 roslaunch fire_detection_ros_rknn fire_system.launch vehicle:=vtol
 ```
 
+Для Техника 6s:
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+roslaunch fire_detection_ros_rknn fire_system.launch vehicle:=test
+```
+
 Интерфейс НСУ: `http://<IP Orange Pi>:8080`. Проверка без дрона: `python3 fire_detection_ros_rknn/tools/simulate.py`.
 
 Подробнее: [дашборд](fire_detection_ros_rknn/README_DASHBOARD.md), [радиомодемы](radio/README.md).

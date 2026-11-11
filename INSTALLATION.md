@@ -29,7 +29,15 @@ catkin_make && source devel/setup.bash
 ```bash
 source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
-roslaunch fire_detection_ros_rknn_slop2 fire_system2.launch vehicle:=vtol
+roslaunch fire_detection_ros_rknn fire_system.launch vehicle:=vtol
+```
+
+Для Техника 6s:
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+roslaunch fire_detection_ros_rknn fire_system.launch vehicle:=test
 ```
 
 На компьютере оператора откройте в браузере `http://192.168.1.20:8080`. Установка выполнена правильно, если в интерфейсе отображаются оба видеопотока, а обнаруженные объекты выделяются рамками и появляются на карте и в журнале.
