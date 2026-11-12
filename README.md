@@ -1,4 +1,5 @@
 # VTOL с системой обнаружения пожаров “Вега”
+# Ссылка модуль B - https://drive.google.com/drive/folders/1EKGJu_Mljsj_pQQ1EpL4KqOHeIJtLKya?usp=sharing
 # Ссылка на паспорт проекта - https://docs.google.com/document/d/1ulLIB_YMaG4zhtzfm-pvwOxbdowuhzrmpYwXogpDT6c/edit?usp=sharing
 
 
